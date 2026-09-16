@@ -7,10 +7,10 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "rootDir": ".",
-    "outDir": "dist/server",
+    "outDir": "dist",
     "types": ["node"],
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["server", "shared", "tests/api.test.ts", "tests/e2e-server.ts"]
+  "include": ["server", "shared"]
 }

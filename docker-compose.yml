@@ -1,0 +1,17 @@
+services:
+  app:
+    build: .
+    ports:
+      - '3000:3000'
+    environment:
+      # Change these before putting the container on a shared network.
+      APP_PASSWORD: ${APP_PASSWORD:-supervisor}
+      SAP_WEBHOOK_SECRET: ${SAP_WEBHOOK_SECRET:-sap-dev-secret}
+      # Optional. Without it sessions are invalidated on every container restart.
+      AUTH_SECRET: ${AUTH_SECRET:-}
+    volumes:
+      - inspections-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  inspections-data:
