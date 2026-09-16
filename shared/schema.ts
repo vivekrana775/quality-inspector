@@ -15,6 +15,7 @@ export const dateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a date in YYYY-MM-DD format.')
   .refine((value) => {
+    // Round-trip through Date so things like 2026-02-30 are rejected.
     const date = new Date(`${value}T00:00:00.000Z`);
     return (
       value.slice(0, 4) !== '0000' &&
@@ -23,7 +24,7 @@ export const dateSchema = z
     );
   }, 'Enter a real calendar date.');
 
-export const createInspectionSchema = z.strictObject({
+const inspectionFields = {
   date: dateSchema,
   machineId: z
     .string()
@@ -33,6 +34,18 @@ export const createInspectionSchema = z.strictObject({
   defectType: z.enum(defectTypes),
   severity: z.enum(severities),
   remarks: z.string().trim().max(2000, 'Use 2,000 characters or fewer.').default(''),
+};
+
+export const createInspectionSchema = z.strictObject({
+  ...inspectionFields,
+  // The app sets this when it queues an inspection offline, so replaying the
+  // request after a lost response can't create a duplicate.
+  clientRef: z.uuid('clientRef must be a UUID.').optional(),
+});
+
+export const sapWebhookSchema = z.strictObject({
+  ...inspectionFields,
+  eventId: z.string().trim().min(1).max(100).optional(),
 });
 
 export const resolveInspectionSchema = z.strictObject({
@@ -41,6 +54,10 @@ export const resolveInspectionSchema = z.strictObject({
     .trim()
     .min(1, 'Add a resolution note before resolving.')
     .max(2000, 'Use 2,000 characters or fewer.'),
+});
+
+export const loginSchema = z.strictObject({
+  password: z.string().min(1, 'Enter the password.').max(200),
 });
 
 export const filterSchema = z
@@ -61,19 +78,26 @@ export type CreateInspection = z.infer<typeof createInspectionSchema>;
 export type InspectionFilters = z.infer<typeof filterSchema>;
 export type Severity = (typeof severities)[number];
 export type InspectionStatus = (typeof statuses)[number];
-export interface Inspection extends CreateInspection {
+export type SortField = (typeof sortFields)[number];
+export type SortOrder = InspectionFilters['sortOrder'];
+
+export interface Inspection extends Omit<CreateInspection, 'clientRef'> {
   id: number;
   status: InspectionStatus;
   resolutionNote: string | null;
   createdAt: string;
   resolvedAt: string | null;
   source: 'Manual' | 'SAP';
+  clientRef: string | null;
 }
 export interface Summary {
   total: number;
   open: number;
   resolved: number;
   bySeverity: { severity: Severity; open: number; resolved: number }[];
+}
+export interface Session {
+  authenticated: boolean;
 }
 export interface ApiErrorBody {
   error: { code: string; message: string; fields?: Record<string, string> };
