@@ -7,7 +7,7 @@ services:
       # Change these before putting the container on a shared network.
       APP_PASSWORD: ${APP_PASSWORD:-supervisor}
       SAP_WEBHOOK_SECRET: ${SAP_WEBHOOK_SECRET:-sap-dev-secret}
-      # Optional. Without it sessions are invalidated on every container restart.
+      # Optional. Left blank, one is generated on first start and kept in the data volume.
       AUTH_SECRET: ${AUTH_SECRET:-}
     volumes:
       - inspections-data:/app/data

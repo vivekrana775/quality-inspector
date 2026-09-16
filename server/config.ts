@@ -1,5 +1,5 @@
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
 // Paths are relative to the working directory; the npm scripts always run from the project root.
@@ -16,11 +16,30 @@ export const staticDir = resolve('dist/client');
 
 export const appPassword = env.APP_PASSWORD || 'supervisor';
 export const sapWebhookSecret = env.SAP_WEBHOOK_SECRET || 'sap-dev-secret';
-export const authSecret = env.AUTH_SECRET || randomBytes(32).toString('hex');
+
+// Without AUTH_SECRET we generate one and keep it next to the database, so sessions
+// survive restarts (and tsx reloads while developing).
+export const authSecret =
+  env.AUTH_SECRET ||
+  (databasePath === ':memory:'
+    ? randomBytes(32).toString('hex')
+    : storedSecret(join(dirname(databasePath), 'session-secret')));
+
+function storedSecret(path: string) {
+  try {
+    const existing = readFileSync(path, 'utf8').trim();
+    if (existing) return existing;
+  } catch {
+    // First run; fall through and create it.
+  }
+  const secret = randomBytes(32).toString('hex');
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, secret, { mode: 0o600 });
+  return secret;
+}
 
 // Printed at startup so the defaults don't get shipped by accident.
 export const warnings = [
   !env.APP_PASSWORD && 'APP_PASSWORD is not set; using the default password "supervisor".',
   !env.SAP_WEBHOOK_SECRET && 'SAP_WEBHOOK_SECRET is not set; using the default "sap-dev-secret".',
-  !env.AUTH_SECRET && 'AUTH_SECRET is not set; sessions will not survive a restart.',
 ].filter((message): message is string => Boolean(message));
