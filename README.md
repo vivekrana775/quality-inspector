@@ -1,210 +1,129 @@
 # Quality Inspection Tracker
 
-A mobile-first application for shop-floor supervisors to log, track, and resolve fabric quality defects. It includes a React frontend, an Express REST API, persistent local SQLite storage, and a mock SAP webhook.
+A small web app for shop-floor supervisors to log fabric defects from a phone, work through them, and see what's still open. Built for the Arvind AI & Analytics full-stack assignment.
 
-## Run locally
+React and Vite on the front, Express on the back, SQLite through Node's built-in driver. One TypeScript project, five runtime dependencies.
 
-**Prerequisites:** Node.js **24.19.0** and npm. No database installation, account, cloud service, or environment file is needed. Dependencies and the runtime version are pinned; `.nvmrc` is included for nvm users.
+<p>
+  <img src="docs/mobile-register.png" width="260" alt="Inspection list at 390px with filters open">
+  <img src="docs/mobile-form.png" width="260" alt="New inspection form at 390px">
+  <img src="docs/mobile-summary.png" width="260" alt="Summary at 390px">
+</p>
 
-From this project directory:
+## Running it
+
+You need Node 22.13 or newer (`.nvmrc` says 24). There's no database to install.
 
 ```sh
-# If using nvm, run: nvm install && nvm use
 npm ci
 npm run dev
 ```
 
-Open **http://localhost:5173**. The API runs at **http://127.0.0.1:3000**. Vite proxies `/api` requests to the backend, and both processes stop with Ctrl+C. With Node already installed, setup is intended to take under five minutes on a typical internet connection.
+Open http://localhost:5173 and sign in with the password `supervisor`. The API listens on port 3000 and Vite proxies `/api` to it. The SQLite file appears at `data/inspections.sqlite` on first start.
 
-The database is created automatically at `data/inspections.sqlite`. The application starts empty. To add six illustrative inspections, run this in another terminal:
-
-```sh
-npm run seed
-```
-
-Seeding only runs when the database is empty, never overwrites existing records, and supplies one Open and one Resolved example for every severity. The examples are fictional.
-
-### Production build
-
-Stop the development server before using its API port for the production server:
+Or, with only Docker installed:
 
 ```sh
-npm run build
-npm start
+docker compose up --build
 ```
 
-Open **http://127.0.0.1:3000**. Express serves the built frontend and API together. Data survives server restarts and rebuilds.
+and open http://localhost:3000. Data goes in a named volume, so it survives `down` and `up`.
 
-### Optional configuration
-
-Copy `.env.example` to `.env` only if you want different defaults. The server and seed command load this file automatically; existing shell environment variables take precedence.
-
-| Variable        | Default                     | Purpose                                                    |
-| --------------- | --------------------------- | ---------------------------------------------------------- |
-| `HOST`          | `127.0.0.1`                 | Interface on which the backend listens                     |
-| `PORT`          | `3000`                      | Backend and production frontend port                       |
-| `DATABASE_PATH` | `./data/inspections.sqlite` | SQLite file, relative to the project directory or absolute |
-
-For the default development workflow, keep port 3000; if you change it, update the `/api` proxy in `vite.config.ts` as well. If a port is occupied, stop the other process or choose a free port. Use Node 24.19.0 if the runtime reports that `node:sqlite` is unavailable.
-
-For a real phone on the same Wi-Fi network, run the production server with `HOST=0.0.0.0 npm start` and open `http://<your-computer-LAN-IP>:3000` on the phone. The app has no authentication, so use this only on a trusted local network.
-
-## Features and workflow
-
-1. **Log an inspection:** choose a date, enter a machine/line ID, choose the defect and severity, and optionally add remarks. The new record starts Open.
-2. **Find inspections:** combine severity, status, and date filters. Both date boundaries are inclusive. Sort by date, machine, severity, or status; reverse the direction using the arrow or, on desktop, click a column heading.
-3. **Resolve an issue:** open a record, enter a resolution note, and mark it Resolved. The note and timestamp remain visible in its details.
-4. **Review the summary:** see Open and Resolved counts for Critical, Major, and Minor inspections. Summary counts always cover all records and dates, independent of register filters.
-
-The register uses a desktop table and phone-friendly cards. Labels, keyboard navigation, focus indicators, dialog focus containment, error recovery, loading states, and empty states are included. The application loads no external fonts, image assets, or analytics.
-
-### Validation and assumptions
-
-- Defect types: `Weave Defect`, `Shade Variation`, `Hole/Tear`, `Count Deviation`, `Other`.
-- Severity: `Critical`, `Major`, `Minor`. Status: `Open`, `Resolved`.
-- `date` is a real calendar date in `YYYY-MM-DD` format. It is stored without timezone conversion; the form defaults to the browser's local date. Past and future dates are allowed because the brief does not constrain them.
-- Machine/line IDs are free text, trimmed, and 1–100 characters long. Remarks are optional, trimmed, and limited to 2,000 characters. Resolution notes are required, trimmed, and 1–2,000 characters long.
-- Creation and resolution timestamps use UTC ISO 8601 strings. The UI displays timestamps in the browser's local timezone.
-- Default order is inspection date descending, then record ID descending for ties. Severity descending means Critical → Major → Minor; machine sorting is SQLite's ASCII case-insensitive ordering; status ascending puts Open first.
-- Resolved records cannot be edited, reopened, or deleted. Competing resolution requests cannot overwrite an existing note.
-- All records are returned in the list; this is deliberately a small local tool without pagination. Filters reset when leaving the register or refreshing the page.
-- The tool represents one shared workspace, with free-text machine identifiers rather than a plant or machine master-data system.
-
-## REST API
-
-Base URL: `http://127.0.0.1:3000`. POST and PATCH requests must use `Content-Type: application/json`. A request body is limited to 32 KB.
-
-Successful responses use `{ "data": ... }`. Errors use:
-
-```json
-{
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "Please check the submitted fields.",
-    "fields": { "machineId": "Enter a machine or line ID." }
-  }
-}
-```
-
-`fields` is present for validation failures. Invalid bodies, enum values, query values, and date ranges return `400`; missing records/routes return `404`; already-resolved records return `409`; oversized bodies return `413`; unexpected failures return `500` without internal details.
-
-| Method | Endpoint                       | Behavior                                                        |
-| ------ | ------------------------------ | --------------------------------------------------------------- |
-| GET    | `/api/health`                  | `200`, health check                                             |
-| POST   | `/api/inspections`             | `201`, creates an Open inspection; includes a `Location` header |
-| GET    | `/api/inspections`             | `200`, filtered and sorted array                                |
-| GET    | `/api/inspections/summary`     | `200`, totals and counts by severity, including zero counts     |
-| GET    | `/api/inspections/:id`         | `200`, complete inspection record                               |
-| PATCH  | `/api/inspections/:id/resolve` | `200`, updated record after resolution                          |
-| POST   | `/api/sap-webhook`             | `201`, creates an Open inspection with source `SAP`             |
-
-### Create an inspection
+A few more commands:
 
 ```sh
-curl -i http://127.0.0.1:3000/api/inspections \
-  -H 'Content-Type: application/json' \
-  -d '{"date":"2026-09-16","machineId":"LOOM-A12","defectType":"Weave Defect","severity":"Critical","remarks":"Broken warp threads near the edge."}'
+npm run seed                  # six sample inspections, only if the database is empty
+npm run build && npm start    # production build, one Express process on :3000
 ```
 
-The request accepts exactly these fields; `remarks` may be omitted. Server-owned fields such as `id`, `status`, timestamps, and `source` cannot be supplied by clients.
+Copy `.env.example` to `.env` to change the port, database path, password or webhook secret. The server prints a warning on startup while it's running on the default password.
 
-Example returned record:
+## What's in it
 
-```json
-{
-  "data": {
-    "id": 1,
-    "date": "2026-09-16",
-    "machineId": "LOOM-A12",
-    "defectType": "Weave Defect",
-    "severity": "Critical",
-    "remarks": "Broken warp threads near the edge.",
-    "status": "Open",
-    "resolutionNote": null,
-    "createdAt": "2026-09-16T08:00:00.000Z",
-    "resolvedAt": null,
-    "source": "Manual"
-  }
-}
-```
+The required pieces: log an inspection, filter and sort the list (severity, status, date range; four sort keys either way), resolve with a mandatory note, and a summary of open and resolved counts per severity.
 
-### Filter and sort
+The optional ones as well:
+
+- **Sign-in.** One shared password (`APP_PASSWORD`) and an HMAC-signed session cookie good for 12 hours. There's no user table; everyone on a floor shares the login. The cookie is `HttpOnly` and `SameSite=Lax` but not `Secure`, because the whole point is opening it over plain http on a phone on the plant Wi-Fi.
+- **Offline logging.** If the phone can't reach the server when you press Save, the inspection is queued in `localStorage`, shows up in a "Pending sync" panel, and is posted automatically when the browser comes back online or you sign in again. Every queued item carries a `clientRef` UUID and the server treats a repeated `clientRef` as the same inspection, so a retry after a lost response can't make a duplicate. This only covers a tab that's already open. There's no service worker, so cold-loading the app with no signal won't work.
+- **Mock SAP webhook.** `POST /api/sap-webhook` with a bearer token creates an inspection tagged as coming from SAP. Details below.
+
+## API
+
+Bodies are JSON. Responses are `{ "data": ... }` or `{ "error": { "code", "message", "fields"? } }`. Everything under `/api/inspections` needs the session cookie and returns 401 without it.
+
+| Method | Path                           | Notes                                                                                                                             |
+| ------ | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/auth/login`              | `{ "password" }`. Sets the `session` cookie; 401 `INVALID_PASSWORD` otherwise.                                                    |
+| GET    | `/api/auth/session`            | `{ "authenticated": true/false }`. Never 401.                                                                                     |
+| POST   | `/api/auth/logout`             | Clears the cookie.                                                                                                                |
+| POST   | `/api/inspections`             | 201 with the record and a `Location` header. 200 with the existing record if `clientRef` was seen before.                         |
+| GET    | `/api/inspections`             | Filters `severity`, `status`, `dateFrom`, `dateTo`. Sorting `sortBy` (`date`, `severity`, `machineId`, `status`) and `sortOrder`. |
+| GET    | `/api/inspections/summary`     | Open and resolved counts per severity, plus totals.                                                                               |
+| GET    | `/api/inspections/:id`         | 404 if it doesn't exist.                                                                                                          |
+| PATCH  | `/api/inspections/:id/resolve` | `{ "resolutionNote" }`. 409 if it was already resolved.                                                                           |
+| POST   | `/api/sap-webhook`             | Needs `Authorization: Bearer <SAP_WEBHOOK_SECRET>`.                                                                               |
+| GET    | `/api/health`                  | Public.                                                                                                                           |
+
+Validation problems come back as 400 with a `fields` map keyed by field name. Unknown query parameters are rejected rather than ignored, which is stricter than usual but catches typos early.
 
 ```sh
-curl 'http://127.0.0.1:3000/api/inspections?severity=Critical&status=Open&dateFrom=2026-09-01&dateTo=2026-09-30&sortBy=date&sortOrder=desc'
+# sign in and keep the cookie
+curl -c jar -H 'Content-Type: application/json' -d '{"password":"supervisor"}' localhost:3000/api/auth/login
+
+# log one
+curl -b jar -H 'Content-Type: application/json' localhost:3000/api/inspections \
+  -d '{"date":"2026-09-16","machineId":"LOOM-A12","defectType":"Weave Defect","severity":"Critical","remarks":"Broken warp threads near the selvedge."}'
+
+# resolve it
+curl -b jar -X PATCH -H 'Content-Type: application/json' localhost:3000/api/inspections/1/resolve \
+  -d '{"resolutionNote":"Replaced the guide; the next sample was clean."}'
 ```
 
-All query parameters are optional. `sortBy` accepts `date`, `severity`, `machineId`, or `status`; `sortOrder` accepts `asc` or `desc`. Omit unused filters rather than passing empty strings. Unknown parameters and repeated parameter values are rejected.
-
-### Resolve
-
-Use the ID returned when the inspection was created:
+The webhook takes the same fields plus an optional `eventId`:
 
 ```sh
-curl -X PATCH http://127.0.0.1:3000/api/inspections/1/resolve \
-  -H 'Content-Type: application/json' \
-  -d '{"resolutionNote":"Replaced the damaged guide and checked the next sample."}'
+curl -H 'Authorization: Bearer sap-dev-secret' -H 'Content-Type: application/json' localhost:3000/api/sap-webhook \
+  -d '{"eventId":"QN-100045","date":"2026-09-16","machineId":"DYE-B04","defectType":"Shade Variation","severity":"Major"}'
 ```
 
-### Mock SAP webhook
+Posting the same `eventId` twice returns the first record with a 200 instead of creating another one. There's no signature check or replay window; a real integration would verify the sender and use SAP's notification number as the id.
 
-The webhook uses the same payload and validation as manual creation. A successful request immediately appears in the register, counts toward the summary, and is labeled as coming from SAP in record details.
+## Decisions and trade-offs
 
-```sh
-curl -i http://127.0.0.1:3000/api/sap-webhook \
-  -H 'Content-Type: application/json' \
-  -d '{"date":"2026-09-16","machineId":"DYE-B04","defectType":"Shade Variation","severity":"Major","remarks":"Batch differs from the approved reference."}'
-```
+**Node's built-in SQLite rather than better-sqlite3 or an ORM.** Nothing to compile, no second process, and the whole store is about 150 lines of plain SQL. The cost is a Node 22.13 floor, which the Docker route gets around. Queries are synchronous; that's fine at this volume and would be the first thing to revisit if the API got busy.
 
-This is a mock inbound integration: there is no SAP connection, signature verification, or retry deduplication. Each valid POST creates a new inspection, including repeated identical requests. A production adapter would authenticate the sender and use an external event ID for idempotency.
+**One set of Zod schemas for the form and the API.** The browser validates with exactly the rules the server enforces, so messages match and limits live in one place. The SQLite `CHECK` constraints back that up, so a bad row can't get in even through the seed script.
 
-## Architecture decisions
+**Filters live in the URL hash.** No router dependency, filters survive reload and navigation, and a filtered view is a link you can paste to someone. The hash is updated with `replaceState`, so typing a date doesn't fill up history.
 
-**One TypeScript project.** React and Express share Zod validation rules and API types, so client forms and backend requests follow the same contract. Frontend pages, reusable components, HTTP handlers, and database access are separated without adding a monorepo or application framework.
+**Migrations keyed off `PRAGMA user_version`.** Adding the `clientRef` column meant existing databases needed upgrading, so the store walks a short list of migrations on startup. It's the smallest thing that works, and there's a test that upgrades a real v1 file.
 
-**SQLite with Node's built-in driver.** A local SQLite file satisfies persistence without database services, native npm addons, or cloud dependencies. Synchronous queries keep the implementation small for this low-volume assignment; Node is pinned, and higher concurrency would justify revisiting the synchronous access model.
+**Mobile first, in the stylesheet too.** The base rules are the 390px layout and two `min-width` breakpoints add the table and the sidebar. On a phone the filters fold behind a toggle so the first record is on screen without scrolling, inputs are 16px so iOS doesn't zoom, and tap targets are 44px or more.
 
-**Small REST surface with server-side filtering.** The browser requests filtered data from the API and refreshes records and summary totals after mutations. SQL values are bound parameters, sorting expressions come from a fixed map, and one conditional UPDATE makes resolution atomic.
+## Assumptions
 
-**One origin in production.** Express serves the Vite production build and REST API from one process; development uses Vite's proxy. This keeps setup simple and avoids unnecessary cross-origin configuration.
+- Dates are plain `YYYY-MM-DD` strings with no timezone. The form defaults to the phone's local date. Past and future dates are both accepted.
+- Machine/line IDs are free text up to 100 characters. Remarks and resolution notes up to 2,000.
+- Resolved inspections are final: no editing, reopening or deleting. Two people resolving the same one at the same moment get one 200 and one 409.
+- The list returns everything; there's no pagination. A single floor won't outgrow that for a good while.
+- The summary counts every inspection, whatever the list is filtered to.
 
-**Mobile-first presentation.** The same API records appear in phone cards or a desktop table, with a native modal dialog for details and resolution. System fonts, a small icon library, and plain CSS keep the UI self-contained and straightforward to maintain.
+## What I'd do with more time
 
-### Project layout
+- A users table with per-supervisor logins and an audit trail of who resolved what.
+- A service worker so the app itself loads offline, not only queues while it's open.
+- Pagination and text search once the register gets long.
+- Rate-limit the login endpoint. Nothing currently slows down a brute-force attempt on the shared password.
+- Try it on real shop-floor phones with gloves on. The 390px Playwright run is a decent stand-in, but it isn't the same thing.
 
-```text
-client/              React app, pages, components, API client, and styles
-server/              Express routes, SQLite access, runtime configuration, seed
-shared/              Validation schemas and API types
-tests/               API integration tests and Playwright browser tests
-data/                Generated local database (ignored by Git)
-dist/                Generated production build (ignored by Git)
-```
-
-## Verification
+## Checks
 
 ```sh
 npm run typecheck
-npm test
-npm run build
-
-# One-time browser download for UI tests; not required to run the app
-npx playwright install chromium
-npm run test:e2e
-
-# Optional source-format check
-npm run format:check
+npm run lint
+npm test              # API tests against an in-memory database
+npm run test:e2e      # Playwright at 390x844 and 1440x1000; first run: npx playwright install chromium
 ```
 
-API tests cover valid and invalid creation, leap dates, text limits, malformed JSON, combined/inclusive filters, all sorting modes, SQL-like input, zero-count summaries, required resolution notes, competing resolutions, webhook records, and persistence after reopening the database.
-
-Browser tests run at **390 × 844** and **1440 × 1000**. They exercise creation, validation, filtering, sorting, details, resolution, summary, network errors, preserved form input, keyboard navigation, dialog focus restoration, and overflow with long content. Each run uses a disposable database; it never touches `data/inspections.sqlite`. UI tests need port 3101 available and create ignored reports and screenshots locally.
-
-## Cuts and improvements with more time
-
-All required features and the mock SAP endpoint are included. Authentication and offline synchronization are intentionally omitted to keep local setup and the core inspection workflow small and reliable.
-
-With more time, I would add authenticated users and a change audit trail; offline drafts with an explicit sync queue and conflict policy; authenticated, idempotent SAP events; pagination and search for larger registers; and automated database migrations and backups. I would also validate the workflow with supervisors on actual shop-floor phones and test more mobile browsers.
-
-This package is prepared for local review. To satisfy the assignment's repository-link submission requirement, publish it to a public repository or a private repository accessible to the reviewers, excluding the database and environment file.
-# quality-inspector
+CI runs the same on Node 22 and 24. The browser tests start their own server on port 3101 with a throwaway database and never touch `data/`.
