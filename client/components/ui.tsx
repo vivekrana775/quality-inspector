@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
-import { ClipboardList, Clock3, CheckCircle2, RefreshCw, LoaderCircle } from 'lucide-react';
-import type { Summary } from '../../shared/schema';
+import { LoaderCircle, RefreshCw } from 'lucide-react';
 
 export function Badge({ value }: { value: string }) {
   return (
@@ -10,12 +9,13 @@ export function Badge({ value }: { value: string }) {
     </span>
   );
 }
+
 export function ErrorState({ message, retry }: { message: string; retry?: () => void }) {
   return (
     <div className="error-state" role="alert">
       <p>{message}</p>
       {retry && (
-        <button className="button secondary" onClick={retry}>
+        <button type="button" className="button secondary" onClick={retry}>
           <RefreshCw size={16} />
           Try again
         </button>
@@ -23,28 +23,30 @@ export function ErrorState({ message, retry }: { message: string; retry?: () => 
     </div>
   );
 }
-export function Loading() {
+
+export function Loading({ label = 'Loading…' }: { label?: string }) {
   return (
     <div className="loading" role="status">
       <LoaderCircle size={22} className="spin" />
-      Loading inspections…
+      {label}
     </div>
   );
 }
+
 export function Field({
+  id,
   label,
   required,
   error,
-  id,
-  children,
   hint,
+  children,
 }: {
+  id: string;
   label: string;
   required?: boolean;
   error?: string;
-  id: string;
-  children: ReactNode;
   hint?: string;
+  children: ReactNode;
 }) {
   return (
     <div className={`field ${error ? 'has-error' : ''}`}>
@@ -64,46 +66,6 @@ export function Field({
           {error}
         </span>
       )}
-    </div>
-  );
-}
-export function MetricCards({ summary, loading }: { summary?: Summary; loading: boolean }) {
-  return (
-    <div className="metrics">
-      {[
-        {
-          label: 'Total inspections',
-          value: summary?.total,
-          icon: ClipboardList,
-          className: 'neutral',
-          caption: 'All recorded checks',
-        },
-        {
-          label: 'Open inspections',
-          value: summary?.open,
-          icon: Clock3,
-          className: 'amber',
-          caption: 'Awaiting resolution',
-        },
-        {
-          label: 'Resolved inspections',
-          value: summary?.resolved,
-          icon: CheckCircle2,
-          className: 'green',
-          caption: 'Action completed',
-        },
-      ].map(({ label, value, icon: Icon, className, caption }) => (
-        <section className={`metric ${className}`} key={label} aria-label={label}>
-          <div>
-            <p>{label}</p>
-            <strong>{loading || value === undefined ? '—' : value}</strong>
-            <span className="metric-caption">{caption}</span>
-          </div>
-          <span className="metric-icon">
-            <Icon size={22} strokeWidth={1.7} />
-          </span>
-        </section>
-      ))}
     </div>
   );
 }

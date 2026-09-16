@@ -1,59 +1,100 @@
-import { useEffect, useRef, useState } from 'react';
-import {
-  Layers3,
-  Factory,
-  ClipboardList,
-  Plus,
-  BarChart3,
-  ChevronRight,
-  CalendarDays,
-  ShieldCheck,
-  CheckCircle2,
-  X,
-} from 'lucide-react';
-import type { Summary } from '../shared/schema';
-import { useApi } from './api';
-import { dateLabel, getView, localToday, navigate, type View } from './utils';
-import { ErrorState, MetricCards } from './components/ui';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { BarChart3, CheckCircle2, ClipboardList, Layers3, LogOut, Plus, X } from 'lucide-react';
+import type { Session } from '../shared/schema';
+import { api, onUnauthorized } from './api';
+import { useRoute } from './hooks';
+import { discard, replay, useOutbox, type PendingInspection } from './outbox';
+import { buildHash, navigate, type View } from './utils';
+import { PendingSync } from './components/PendingSync';
 import InspectionList from './pages/InspectionList';
+import Login from './pages/Login';
 import NewInspection from './pages/NewInspection';
 import SummaryView from './pages/SummaryView';
 
+const navItems: { view: View; label: string; icon: typeof ClipboardList }[] = [
+  { view: 'inspections', label: 'Inspections', icon: ClipboardList },
+  { view: 'new', label: 'New inspection', icon: Plus },
+  { view: 'summary', label: 'Summary', icon: BarChart3 },
+];
+
+const titles: Record<View, string> = {
+  inspections: 'Quality inspections',
+  new: 'Log an inspection',
+  summary: 'Inspection summary',
+};
+
 export default function App() {
-  const [view, setView] = useState<View>(getView);
+  const [authenticated, setAuthenticated] = useState<boolean>();
+  const pending = useOutbox();
+
+  useEffect(() => {
+    api<Session>('/auth/session')
+      .then((session) => setAuthenticated(session.authenticated))
+      .catch(() => setAuthenticated(false));
+    return onUnauthorized(() => setAuthenticated(false));
+  }, []);
+
+  if (authenticated === undefined) return null;
+  if (!authenticated) {
+    return <Login onSignedIn={() => setAuthenticated(true)} pendingCount={pending.length} />;
+  }
+  return (
+    <Workspace
+      pending={pending}
+      onSignOut={() =>
+        api('/auth/logout', { method: 'POST' })
+          .catch(() => undefined)
+          .finally(() => setAuthenticated(false))
+      }
+    />
+  );
+}
+
+function Workspace({
+  pending,
+  onSignOut,
+}: {
+  pending: PendingInspection[];
+  onSignOut: () => void;
+}) {
+  const { view, params } = useRoute();
   const [revision, setRevision] = useState(0);
   const [notice, setNotice] = useState('');
   const heading = useRef<HTMLHeadingElement>(null);
-  const summary = useApi<Summary>('/inspections/summary', revision);
+  const previousView = useRef(view);
+
   useEffect(() => {
-    const listener = () => setView(getView());
-    window.addEventListener('hashchange', listener);
-    return () => window.removeEventListener('hashchange', listener);
-  }, []);
-  useEffect(() => {
-    heading.current?.focus({ preventScroll: true });
-    window.scrollTo(0, 0);
-  }, [view]);
-  useEffect(() => {
-    if (notice) {
-      const timer = setTimeout(() => setNotice(''), 6500);
-      return () => clearTimeout(timer);
+    // Move focus to the new page title on navigation, but not on the initial render.
+    if (previousView.current !== view) {
+      heading.current?.focus({ preventScroll: true });
+      window.scrollTo(0, 0);
     }
+    previousView.current = view;
+  }, [view]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(''), 6500);
+    return () => clearTimeout(timer);
   }, [notice]);
-  const changed = (message: string) => {
-    setRevision((value) => value + 1);
-    setNotice(message);
-  };
-  const titles = {
-    inspections: 'Quality inspections',
-    new: 'Log an inspection',
-    summary: 'Inspection summary',
-  };
-  const descriptions = {
-    inspections: 'Every defect accounted for. Every resolution in one place.',
-    new: 'Capture a quality issue while it’s fresh on the shop floor.',
-    summary: 'A clear view of quality across all inspections.',
-  };
+
+  const sync = useCallback(
+    () =>
+      replay().then((count) => {
+        if (!count) return;
+        setRevision((value) => value + 1);
+        setNotice(`${count} offline ${count === 1 ? 'inspection' : 'inspections'} synced.`);
+      }),
+    [],
+  );
+
+  // Anything queued while offline goes out once we're signed in and back on the network.
+  useEffect(() => {
+    sync();
+    window.addEventListener('online', sync);
+    return () => window.removeEventListener('online', sync);
+  }, [sync]);
+
   return (
     <div className="app-shell">
       <a
@@ -66,112 +107,81 @@ export default function App() {
       >
         Skip to content
       </a>
-      <aside className="sidebar">
-        <a className="brand" href="#inspections">
+      <header className="site-nav">
+        <a className="brand" href="#inspections" aria-label="Quality Inspection Tracker">
           <span className="brand-mark">
-            <Layers3 size={24} />
+            <Layers3 size={22} />
           </span>
-          <span>
-            QUALITY<span className="brand-subtitle">INSPECTION TRACKER</span>
-          </span>
+          <span className="brand-text">Quality Inspection Tracker</span>
         </a>
-        <p className="nav-eyebrow">WORKSPACE</p>
         <nav aria-label="Main navigation">
-          {[
-            { view: 'inspections', label: 'Inspections', icon: ClipboardList },
-            { view: 'new', label: 'New inspection', icon: Plus },
-            { view: 'summary', label: 'Summary', icon: BarChart3 },
-          ].map(({ view: target, label, icon: Icon }) => (
+          {navItems.map(({ view: target, label, icon: Icon }) => (
             <a
               key={target}
-              href={`#${target}`}
+              href={buildHash(target, params)}
               className={`nav-item ${view === target ? 'active' : ''}`}
               aria-current={view === target ? 'page' : undefined}
             >
-              <Icon size={20} />
+              <Icon size={18} />
               <span>{label}</span>
-              {view === target && <ChevronRight className="nav-chevron" size={16} />}
+              {target === 'inspections' && pending.length > 0 && (
+                <span className="nav-badge" aria-hidden="true">
+                  {pending.length}
+                </span>
+              )}
             </a>
           ))}
         </nav>
-        <div className="sidebar-footer">
-          <Factory size={22} />
-          <div>
-            Shop-floor workspace<span>Quality operations</span>
-          </div>
+        <div className="nav-end">
+          <button type="button" className="nav-item" onClick={onSignOut}>
+            <LogOut size={18} />
+            <span>Sign out</span>
+          </button>
         </div>
-      </aside>
-      <div className="workspace">
-        <header className="topbar">
-          <div className="breadcrumb">
-            Operations <ChevronRight size={14} />
-            <span>Quality control</span>
-          </div>
-          <div className="topbar-date">
-            <CalendarDays size={15} />
-            {dateLabel(localToday())}
-          </div>
-          <span className="topbar-mark">
-            <ShieldCheck size={19} />
-          </span>
-        </header>
-        <main id="main-content">
-          <div className="page-heading">
-            <div>
-              <p className="eyebrow">SHOP-FLOOR QUALITY</p>
-              <h1 ref={heading} tabIndex={-1}>
-                {titles[view]}
-              </h1>
-              <p className="page-description">{descriptions[view]}</p>
-            </div>
-            {view !== 'new' && (
-              <button className="button primary add-button" onClick={() => navigate('new')}>
-                <Plus size={18} />
-                Log inspection
-              </button>
-            )}
-          </div>
-          {view === 'new' ? (
-            <NewInspection
-              onSaved={(record) => {
-                changed(`Inspection #${record.id} logged successfully.`);
-                navigate('inspections');
-              }}
-            />
-          ) : (
-            <>
-              {summary.error && <ErrorState message={summary.error} retry={summary.reload} />}
-              <MetricCards
-                summary={summary.error ? undefined : summary.data}
-                loading={summary.loading}
-              />
-              {view === 'inspections' ? (
-                <InspectionList
-                  revision={revision}
-                  onResolved={() =>
-                    changed('Inspection resolved. The resolution note has been saved.')
-                  }
-                />
-              ) : (
-                <SummaryView
-                  summary={summary.data}
-                  loading={summary.loading}
-                  error={summary.error}
-                />
-              )}
-            </>
+      </header>
+      <main id="main-content">
+        <div className="page-heading">
+          <h1 ref={heading} tabIndex={-1}>
+            {titles[view]}
+          </h1>
+          {view !== 'new' && (
+            <button type="button" className="button primary" onClick={() => navigate('new')}>
+              <Plus size={18} />
+              Log inspection
+            </button>
           )}
-          <footer className="page-footer">
-            <ShieldCheck size={14} />
-            <span>Better quality starts with a recorded observation.</span>
-          </footer>
-        </main>
-      </div>
+        </div>
+        {view === 'new' && (
+          <NewInspection
+            onSaved={(record) => {
+              setRevision((value) => value + 1);
+              setNotice(`Inspection #${record.id} logged.`);
+              navigate('inspections', new URLSearchParams());
+            }}
+            onQueued={() => {
+              setNotice('Saved offline. It will sync when the connection is back.');
+              navigate('inspections', new URLSearchParams());
+            }}
+          />
+        )}
+        {view === 'inspections' && (
+          <>
+            {pending.length > 0 && (
+              <PendingSync items={pending} onSync={sync} onDiscard={discard} />
+            )}
+            <InspectionList
+              revision={revision}
+              onResolved={() => setRevision((value) => value + 1)}
+            />
+          </>
+        )}
+        {view === 'summary' && <SummaryView />}
+      </main>
       {notice && (
         <div className="toast" role="status">
           <CheckCircle2 size={20} />
           <span>{notice}</span>
-          <button aria-label="Dismiss notification" onClick={() => setNotice('')}>
+          <button type="button" aria-label="Dismiss notification" onClick={() => setNotice('')}>
             <X size={18} />
           </button>
         </div>
